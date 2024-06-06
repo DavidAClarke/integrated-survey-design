@@ -1,0 +1,26 @@
+{
+    "id": "73E17A0F",
+    "path": "C:/Users/dcla0021/Documents/postdoc/projects/sampling_plan/integrated_survey_design/R/01_functions.R",
+    "project_path": "R/01_functions.R",
+    "type": "r_source",
+    "hash": "0",
+    "contents": "",
+    "dirty": false,
+    "created": 1717648452230.0,
+    "source_on_save": false,
+    "relative_order": 3,
+    "properties": {
+        "source_window_id": "",
+        "Source": "Source",
+        "cursorPosition": "202,0",
+        "scrollLine": "177"
+    },
+    "folds": "6|28|30|1|\n34|27|72|1|\n76|33|86|1|\n90|51|111|1|\n",
+    "lastKnownWriteTime": 1717648518,
+    "encoding": "UTF-8",
+    "collab_server": "",
+    "source_window": "",
+    "last_content_update": 1717648518540,
+    "read_only": false,
+    "read_only_alternatives": []
+}
