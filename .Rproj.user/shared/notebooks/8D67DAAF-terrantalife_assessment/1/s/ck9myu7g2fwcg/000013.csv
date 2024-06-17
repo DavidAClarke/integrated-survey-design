@@ -1,0 +1,2 @@
+"0","cnts <- read.csv(here(""counts.csv""))"
+"0","plot(log1p(cnts$key), log1p(cnts$names))"

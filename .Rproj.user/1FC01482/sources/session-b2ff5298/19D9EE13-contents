@@ -1,0 +1,540 @@
+################################################################################
+### Antarctic terrestrial GBIF records
+################################################################################
+## All GBIF records below 60 S
+# gbif <- occ_count(hasCoordinate = T,
+#                   hasGeospatialIssue = F)
+#
+# ant_gbif <- occ_search(hasCoordinate = T,
+#                        hasGeospatialIssue = F,
+#                        decimalLatitude = '-90,-60')
+#
+# ant_gbif$meta$count/gbif*100
+
+### Use the TerrANTALife database and determine how many GBIF records are
+# available for each species
+terrantalife <- read_csv(here(data_path, "biodiversity", "terrANTAlife.csv")) %>%
+
+  dplyr::filter(taxonRank == "SPECIES") %>%
+
+  arrange(ScientificName)
+
+#which(terrantalife$ScientificName == "Lepraria neglecta") #929
+
+species <- terrantalife %>% pull(ScientificName)
+
+#terrANTAlife Lepraria neglecta and Sporotrichum roseum usakgeKey is wrong (potentially others as well)
+terrantalife <- terrantalife %>%
+
+  mutate(usageKey = ifelse(row_number() == 1022, 6017317, usageKey)) %>%
+  mutate(usageKey = ifelse(row_number() == 1789, 9383821, usageKey))
+
+taxonKey <- terrantalife %>% pull(usageKey)
+
+terr_na <- terrantalife %>% filter(is.na(usageKey))
+
+# #issues with terrantalife taxonomy
+tx_df <- name_backbone(name = species[1], verbose = T)
+
+for(i in 2:length(species)){
+
+  df <- name_backbone(name = species[i], verbose = T)
+  tx_df <- tx_df %>%
+    bind_rows(df)
+}
+
+write_csv(tx_df, here("data", "biodiversity", "gbif", "taxon_df.csv"))
+tx_df_species <- read_csv(here("data", "biodiversity", "gbif", "taxon_df.csv"))
+
+
+# tx_df_species <- tx_df %>%
+#   filter(rank == "SPECIES") #%>%
+#   #filter(status == "ACCEPTED") #%>%
+#   #filter(matchType == "EXACT")
+#
+tx_ter_df <- tx_df_species %>%
+  drop_na(canonicalName) %>%
+  stringdist_join(terrantalife, by = c(canonicalName = "ScientificName"),
+                  mode = "inner", method = "lv", distance_col = "dist") %>%
+  select(usageKey.x, canonicalName, verbatim_name, acceptedUsageKey, status, usageKey.y, ScientificName, dist)
+write_csv(tx_ter_df, here("data", "biodiversity", "gbif", "taxon_fuzzy_df.csv"))
+#
+# tx_ter_df2 <- tx_ter_df %>%
+#   mutate(acceptedUsageKey = ifelse(is.na(acceptedUsageKey), usageKey.y, acceptedUsageKey))
+
+# #where dist != 0, do usage keys match?
+ tx_ter_df_nz <- tx_ter_df %>%
+   filter(dist != 0)
+
+ tx_ter_df_z <- tx_ter_df %>%
+   filter(dist == 0)
+
+ tx_ter_df_na <- tx_ter_df %>%
+   filter(is.na(usageKey.y))
+
+counts <- c()
+counts_ant <- c()
+
+# GBIF search: 27/03/2024
+for(i in 1:length(taxonKey)){
+
+  # 7 566 275 records when not restricted to below 60
+  # 1 565 927 records when restricted to below 60
+
+  #using taxonKey (this is wrong)
+  # 109 342 220 967 records when not restricted to below 60
+  # 126 993 366 records when restricted to below 60
+
+  #using taxonKey after fixing two main mistakes
+  # 119 858 143 560
+  # 128 286 808
+
+  # could look at the ratio, i.e., number of records in Antarctica relative to global records?
+  gbif <- occ_count(taxonKey = taxonKey[i],
+                    hasCoordinate = T,
+                    hasGeospatialIssue = F)
+
+  counts <- c(counts, gbif)
+
+  gbif_ant <- occ_count(taxonKey = taxonKey[i],
+                    hasCoordinate = T,
+                    hasGeospatialIssue = F,
+                    decimalLatitude = '-90,-60')
+
+  counts_ant <- c(counts_ant, gbif_ant)
+
+
+}
+
+
+
+terrantalife_counts <- bind_cols(species, counts, counts_ant) %>%
+  rename(ScientificName = "...1") %>%
+  rename(gbifCount = "...2") %>%
+  rename(gbifAntCount = "...3")
+
+terrantalife <- terrantalife %>% left_join(terrantalife_counts, by = "ScientificName")
+write.csv(terrantalife, "C:/Users/dcla0021/Documents/postdoc/projects/shared_data/biodiversity/terrANTAlife_upd.csv")
+atl <- read_csv(here("data", "biodiversity", "terrANTAlife_upd.csv"))
+
+phy <- terrantalife %>% group_by(phylum) %>% count() %>% pull(n)
+freq <- terrantalife %>% group_by(phylum) %>% summarise(Frequency = sum(gbifCounts_sub60)) %>% pull(Frequency)
+m1 <- lm(log1p(freq) ~ log1p(phy)) #strong relationship between number of species and number of records
+plot(log1p(phy), log1p(freq))
+abline(m1)
+
+m_bioant <- displ$new(atl$gbifAntCount+1) #can't have zeros
+est_bioant <- estimate_xmin(m_bioant)
+m_bioant$setXmin(est_bioant)
+plot(m_bioant, pch = 21, bg = 2, panel.first = grid(col = "grey80"),
+     xlab = "Occurrence records", ylab = "CDF")
+lines(m_bioant, col = 3, lwd = 3)
+
+m_ln = dislnorm$new(atl$gbifAntCount+1)
+est = estimate_xmin(m_ln)
+
+m_ln$setXmin(m_bioant$getXmin())
+est <- estimate_pars(m_ln)
+m_ln$setPars(est)
+comp <- compare_distributions(m_bioant, m_ln)
+
+m_na = displ$new(atl$gbifAntCount+1)
+m_us = displ$new(atl$gbifCount+1)
+m_us_n <- dislnorm$new(atl$gbifCount+1)
+
+est_na = estimate_xmin(m_na, pars = seq(1.5, 2.5, 0.01))
+est_us = estimate_xmin(m_us, pars = seq(1.5, 2.5, 0.01))
+
+est_na = estimate_xmin(m_na)
+est_us = estimate_xmin(m_us)
+est_us_n = estimate_xmin(m_us_n)
+
+m_na$setXmin(est_na)
+m_us$setXmin(est_us)
+m_us_n$setXmin(est_us_n)
+
+plot(m_na)
+lines(m_na)
+## Don't create a new plot, just store the output
+d = plot(m_us, draw = FALSE)
+points(d$x, d$y, col = 2)
+lines(m_us, col = 2)
+de = plot(m_us_n, draw = FALSE)
+points(de$x, de$y, col = 2)
+lines(m_us_n, col = 3)
+
+##Do I also create a heat map with the occurrence records?
+bb <- st_bbox(c(xmin = -180, xmax = 180, ymax = -60, ymin = -90), crs = st_crs(4326))
+bb_p <- bb %>%
+  st_as_sfc() %>%
+  st_as_text()
+
+user <- "davidclarke"
+pwd <- "GBIFN#8208!"
+email <- "david_anthony_clarke@hotmail.com"
+#
+# # #Only retrieves 1994 out of 2037 species
+# gbif_names <- name_backbone_checklist(species) %>%
+#   filter(!matchType == "NONE") %>%
+#   pull(usageKey)
+
+# There is already a usageKey in the dataset
+
+# Maybe get all occurrences and then I can show Antarctica relative to world
+# instead of only getting occurrences from Antarctica.
+# I could also try with using species names instead of Keys?
+res <- occ_download(
+  pred_in("basisOfRecord", c('HUMAN_OBSERVATION','OBSERVATION','MACHINE_OBSERVATION', 'PRESERVED_SPECIMEN')),
+  pred_in("taxonKey", taxonKey),
+  pred("hasCoordinate", TRUE),
+  pred("hasGeospatialIssue", FALSE),
+  pred_within(bb_p),
+  format = "SIMPLE_CSV",
+  user=user,pwd=pwd,email=email)
+#
+# occ_download_meta(res) #0045349-240321170329656
+# occ_download_get(res, path = here(data_path, "biodiversity"))
+# unzip(here(data_path, "biodiversity", "0045349-240321170329656.zip"),
+#       exdir = here(data_path, "biodiversity", "gbif"))
+# file.remove(here(data_path, "biodiversity", "0045349-240321170329656.zip"))
+
+## Load and filter data
+my_cols_min <- c("phylum", "class", "order", "family", "genus", "species",
+                 "taxonRank","scientificName", "decimalLongitude",
+                 "decimalLatitude","countryCode","stateProvince",
+                 "coordinateUncertaintyInMeters","coordinatePrecision",
+                 "basisOfRecord","year", "eventDate","individualCount",
+                 "institutionCode")
+
+gbif <- vroom(here(shared_data, "biodiversity", "gbif",
+                   "0045349-240321170329656.csv"),
+                 delim = "\t") %>%
+  dplyr::select(all_of(my_cols_min))
+
+write.csv(gbif, here(shared_data, "biodiversity", "gbif", "gbif_mycols.csv"))
+
+#T may be replaced with D
+gbif <- vroom(here("data", "biodiversity", "gbif", "gbif_mycols.csv"),
+                 col_types = list("i", "f", "f", "f", "f", "f", "c", "f", "c", "d",
+                              "d", "f","f", "d", "d", "f", "?", "i", "f"))
+
+gbif_ant <- gbif %>%
+
+  drop_na(decimalLongitude) %>%
+
+  filter(decimalLatitude < -60)
+
+gbif_ant_sf <- st_as_sf(gbif_ant,
+                    coords = c("decimalLongitude", "decimalLatitude"),
+                    crs = st_crs(4326)) %>%
+           st_transform(9354) #9354 for use with IBSCO rgb image
+
+gbif_ant_nogeom <- gbif_ant %>%
+  mutate(longitude = st_coordinates(gbif_ant_sf)[,1]) %>%
+  mutate(latitude = st_coordinates(gbif_ant_sf)[,2]) %>%
+  st_drop_geometry()
+
+#Species in the GBIF download that are NOT in terrantalife
+gbif_species <- gbif_ant %>% distinct(species = species, .keep_all = F) %>% pull()
+spdiff <- setdiff(gbif_species, species)
+
+gbif_ant_sf <- gbif_ant_sf %>%
+
+  filter(!species %in% spdiff)
+
+depth <- rast("C:/Users/dcla0021/Documents/postdoc/projects/shared_data/environmental/bathymetry/IBCSO_v2_bed_RGB.tif")
+
+coast <- st_read("C:/Users/dcla0021/Documents/postdoc/projects/shared_data/environmental/coastline/Coastline.shp") %>%
+  st_transform(9354) %>%
+  st_crop(depth) %>%
+  filter(surface == "land")
+
+gbif_ant_sf_min <- gbif_ant_sf %>%
+  st_filter(st_buffer(coast, 1000), .predicates = st_within)
+st_write(gbif_ant_sf_min, here("data", "biodiversity", "gbif", "gbif_ant_sf_min.shp"))
+gbif_sf <- st_read(here("data", "biodiversity", "gbif", "gbif_ant_sf_min.shp"))
+
+# 3188 records don't have an associated year
+
+## Desnity of points
+ant1km <- rast(extent = ext(coast),
+               resolution = 5000,
+               crs = crs(coast),
+               vals = 1)
+ant1km <- mask(ant1km, coast)
+occCounts <- rasterize(st_coordinates(gbif_sf), ant1km, fun = "count", background = NA)
+
+## Mean/median records per species
+spec_rec <- gbif_sf %>%
+  st_drop_geometry() %>%
+  group_by(phylum, species) %>%
+  summarise(count = n())
+
+summary(spec_rec$count)
+sqrt(var(spec_rec$count))
+
+#Cumulative records for all species combined
+cumsum_records <- gbif_sf %>%
+  st_drop_geometry() %>%
+  arrange(year) %>%
+  group_by(year) %>%
+  mutate(year_count = n()) %>%
+  filter(taxnRnk == "SPECIES") %>%
+  distinct(year = year, .keep_all = T) %>%
+  ungroup() %>%
+  mutate(year_cumsum = cumsum(year_count)) %>%
+  select(year, year_cumsum, year_count) %>%
+  mutate(year = as.character(year)) %>%
+  mutate(phylum = "All") %>%
+  relocate(phylum, .after = "year")
+
+#Counts of records per phylum per year
+gbif_4cumsum <- gbif_sf %>%
+  st_drop_geometry() %>%
+  arrange(year) %>%
+  group_by(year, phylum) %>%
+  summarise(year_count = n()) %>%
+  drop_na(phylum) %>%
+  drop_na(year)
+
+phylums <- unique(gbif_4cumsum$phylum)
+
+my_list <- list()
+
+for(j in 1:length(phylums)){
+
+    df <- gbif_4cumsum %>%
+        ungroup() %>%
+        filter(phylum == phylums[j]) %>%
+        mutate(year_cumsum = cumsum(year_count)) %>%
+        mutate(year = as.character(year))
+
+    my_list[[j]] <- df
+
+    }
+
+for(i in 1:length(my_list)){
+
+  cumsum_records <- cumsum_records %>%
+    bind_rows(my_list[[i]])
+
+}
+
+# Define the number of colors you want
+nb.cols <- 21
+mycolors <- colorRampPalette(brewer.pal(8, "Dark2"))(nb.cols)
+
+cumsum_fig <- ggplot(data = cumsum_records, aes(x = as.numeric(year),
+                                  y = log(year_cumsum),
+                                  group = phylum)) +
+  geom_line(linewidth = 1, aes(colour = phylum, linetype = phylum)) +
+  scale_color_manual(values = mycolors, name = "Phylum") +
+  scale_linetype_manual(values = c("solid", "dashed", rep("solid",19)), name = "Phylum") +
+  geom_vline(xintercept = c(1960, 2000)) +
+  theme_bw() +
+  theme(panel.grid = element_blank()
+        ,legend.position = "none"
+        ) +
+  scale_y_continuous(expand = c(0,0),
+                     limits = c(0,13)) +
+  ylab("Cumulative number of GBIF records (log)") +
+  xlab("Year") #+
+  #guides(colour = guide_legend(ncol = 1))
+
+##
+time_periods <- cumsum_records %>%
+  mutate(timePeriod = case_when(year < 1960 ~ "pre-1960",
+                                year >= 1960 & year < 2000 ~ "1960-2000",
+                                year > 2000 ~ "post 2000")) %>%
+  filter(phylum == "All") %>%
+  group_by(timePeriod) %>%
+  summarise(n = sum(year_count))
+
+## SCAR gazeteer
+scar_gaz <- read.csv(here(data_path, "administrative", "SCAR_CGA_PLACE_NAMES.csv")) %>%
+  st_as_sf(coords = c("longitude", "latitude"), crs = st_crs(4326)) %>%
+  st_transform(9354)
+
+stations <- scar_gaz %>%
+  filter(feature_type_name == "Station")
+
+
+## Map figure
+gbif_sf_2 <- gbif_sf %>%
+  drop_na(phylum) %>%
+  filter(phylum != "Glomeromycota") #this is not in line graph; only 1 record
+
+ggplot() +
+  geom_spatial_rgb(
+    data = depth,
+    mapping = aes(
+      x = x,
+      y = y,
+      r = red,
+      g = green,
+      b = blue
+    )
+  ) +
+  theme_bw() +
+  theme(panel.grid = element_blank(),
+        panel.border = element_blank(),
+        axis.title = element_blank(),
+        axis.text = element_blank(),
+        axis.ticks = element_blank()) +
+  geom_sf(data = gbif_sf_2, mapping = aes(colour = phylum)) +
+  scale_color_manual(values = mycolors[-2], name = "Phylum") +
+  geom_sf(data = stations, colour = "black")
+
+for_bar <- gbif_sf_2 %>%
+  st_drop_geometry() %>%
+  group_by(phylum) %>%
+  summarise(count = n()) %>%
+  mutate(log_count = log(count))
+
+## Number of records per phylum (log)
+bar_counts <- ggplot(for_bar , aes(x = reorder(phylum, desc(phylum)), y = log_count, fill = phylum)) +
+  geom_col() +
+  scale_fill_manual(values = mycolors[-2]) +
+  theme_classic() +
+  theme(panel.grid = element_blank(),
+        #axis.title.y = element_blank(),
+        #axis.text.y = element_blank(),
+        axis.ticks.y = element_blank(),
+        legend.position = "none") +
+  coord_flip() +
+  #scale_y_log10() +
+  #scale_y_continuous(transform = "log") +
+  ylab("Number of GBIF records (log)") +
+  xlab("Phylum")
+
+ggpubr::ggarrange(bar_counts,cumsum_fig, nrow = 1, ncol = 2, common.legend = F)
+
+chord <- gbif_sf %>% filter(phylum == "Chordata")
+nrow(chord)/nrow(gbif_sf) * 100 # 85% of records are vertebrates (unsurprising)
+
+## Taxonomic, spatial, temporal summary stats (divide by decades? Amano et al 2016)
+# Could like amano but compare taxonomically not region
+# x = number of records per km2 in decade before y
+# y = number of records per km2 during decade y (maybe 5 years? need to see quantity)
+# cumsum of records over time
+
+# two plots (2 row 1 col) with sumsum line graphs on top and non-cumsum boxplots on bottom
+# colour lines by taxonomy, have different boxes for taxonomony
+
+
+#Create presence absence object
+occ_mat <- gbif %>%
+  dplyr::select(scientificName, decimalLongitude, decimalLatitude)
+
+ant_presab <- letsR::lets.presab.points(xy = as.matrix(occ_mat[,2:3]),
+                                   species = as.vector(occ_mat[,1]),
+                                   xmn = as.vector(st_bbox(gbif_sf)[1]),
+                                   xmx = as.vector(st_bbox(gbif_sf)[3]),
+                                   ymn = as.vector(st_bbox(gbif_sf)[2]),
+                                   ymx = as.vector(st_bbox(gbif_sf)[4]),
+                                   resol = NULL,
+                                   crs = st_crs(4326),
+                                   count = T)
+
+### Number of records per grid cell
+pointcount <- function(r, pts){
+
+  r2 <- r
+  r2[] <- 0
+  counts <- table(cellFromXY(r, pts))
+  r2[as.numeric(names(counts))] <- as.numeric(counts)
+  return(r2)
+
+}
+
+for(i in 1:length(counts)){
+
+  r2[as.numeric(names(counts))[i]] <- counts[i]
+
+}
+
+
+
+
+r <- rast(xmin = st_bbox(coast)[1],
+          xmax = st_bbox(coast)[3],
+          ymin = st_bbox(coast)[2],
+          ymax = st_bbox(coast)[4],
+          crs = crs(coast),
+          resolution = 10000)
+
+
+
+#Number of records per cell. Use as offset in regression
+r2 <- pointcount(r, as.matrix(data.frame(long = gbif_ant_nogeom$longitude, lat = gbif_ant_nogeom$latitude)))
+r2 <- mask(r2, BH_mask)
+
+
+################################### occAssess ##################################
+gbif <- gbif_sf_2 %>% #no NAs in phylum
+  mutate(x = st_coordinates(.)[,1]) %>%
+  mutate(y = st_coordinates(.)[,2]) %>%
+  st_drop_geometry()
+
+periods <- list(1840:1949, 1950:1959, 1960:1969, 1970:1979, 1980:1989, 1990:1999, 2000:2009, 2010:2019, 2020:2024)
+periods <- as.list(sort(unique(gbif_sf_2$year)))
+
+nRec <- assessRecordNumber(dat = gbif,
+                           periods = periods,
+                           species = "species",
+                           x = "x",
+                           y = "y",
+                           year = "year",
+                           spatialUncertainty = "crdnUIM",
+                           identifier = "phylum",
+                           normalize = F)
+nRec$plot
+
+nSpec <- assessSpeciesNumber(dat = gbif,
+                             periods = periods,
+                             species = "species",
+                             x = "x",
+                             y = "y",
+                             year = "year",
+                             spatialUncertainty = "crdnUIM",
+                             identifier = "phylum",
+                             normalize = FALSE)
+nSpec$plot
+
+ggplot(nSpec$data, aes(x = Period, y = log1p(val), colour = group)) +
+  geom_point() +
+  #geom_line() +
+  geom_smooth() +
+  scale_colour_manual(values = mycolors[-2]) +
+  theme_classic() +
+  theme(panel.grid = element_blank())
+
+plot(log(nRec$data$val), log(nSpec$data$val))
+
+ns <- nRec$data %>%
+  left_join(nSpec$data, by = c("group", "Period")) %>%
+  mutate(num_recs = val.x + 1) %>%
+  mutate(num_specs = val.y + 1) %>%
+  mutate(rec_spec_ratio = num_recs/num_specs)
+
+plot(ns$rec_spec_ratio ~ ns$Period)
+
+taxBias <- assessRarityBias(dat = gbif,
+                            periods = periods,
+                            res = 1000,
+                            prevPerPeriod = FALSE,
+                            species = "species",
+                            x = "x",
+                            y = "y",
+                            year = "year",
+                            spatialUncertainty = "crdnUIM",
+                            identifier = "phylum")
+taxBias$plot +ggplot2::ylim(c(0,1))
+
+ggplot(taxBias$data, aes(x = period, y = index, colour = id)) +
+  geom_point() +
+  geom_line() +
+  scale_colour_manual(values = mycolors[-2]) +
+  theme_classic() +
+  theme(panel.grid = element_blank())
+
