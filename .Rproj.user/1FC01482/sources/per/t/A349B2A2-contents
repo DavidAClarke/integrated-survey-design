@@ -1,0 +1,51 @@
+################################################################################
+## Script name: interactive_map.R
+## Author: David Clarke
+## Copyright (c) David Clarke, 2024
+## Email: david_anthony_clarke@hotmail.com
+################################################################################
+
+# Libraries & file paths --------------------------------------------------
+
+pckgs <- c("tidyverse", "sf", "here", "mapview", "terra")
+lapply(pckgs, require, character.only = T)
+
+shared_data <- "C:/Users/dcla0021/Documents/postdoc/projects/shared_data/"
+
+# Load data ---------------------------------------------------------------
+
+coast <- st_read(here(shared_data, "environmental", "coastline", "Coastline.shp"))
+
+acbr <- st_read(here(shared_data, "biodiversity", "acbr", "ACBRs_v2_2016",
+                     "ACBRs_v2_2016.shp"))
+
+bh <- st_read(here(shared_data, "environmental", "rock_outcrop_bunger_hills", "bh_geopackage.gpkg"))
+
+antveg <- st_read(here(shared_data, "biodiversity", "PlantarcticaVegetationMap.shp")) %>%
+  
+  st_crop(bh) %>%
+  
+  filter(Vegetation == "Vegetation")
+
+
+outcrop <- st_read(here(shared_data, "environmental", "rock_outcrop",
+                        "Landsat_8_Derived_Outcrop_Dataset_2016.shp")) %>%
+  
+  st_union() %>%
+  
+  st_transform(3031)
+
+acbr_outcrop <- st_intersection(acbr, outcrop) 
+
+st_write(acbr_outcrop, here(shared_data, "biodiversity", "acbr", "acbr_outcrop.gpkg"))
+
+# Make map ----------------------------------------------------------------
+
+cl2 <- colorRampPalette(c("blue","Turquoise","Khaki","orange","darkred"))
+
+mapview(coast, native.crs = T, col.regions = "white", legend = F) +
+  mapview(acbr_outcrop, native.crs = T, burst = F, zcol = "ACBR_Name")
+
+mapview(coast, native.crs = T, col.regions = "white", legend = F) +
+  mapview(bh, native.crs = T, col.regions = "tan", legend = F) +
+    mapview(antveg, native.crs = T, col.regions = "green")

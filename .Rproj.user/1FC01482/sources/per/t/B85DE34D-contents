@@ -1,0 +1,38 @@
+################################################################################
+## Script name: gbif_satveg_overlap.R
+## Author: David Clarke
+## Copyright (c) David Clarke, 2024
+## Email: david_anthony_clarke@hotmail.com
+################################################################################
+
+pkgs <- c("sf","tidyverse","here","terra","rassta", "rgbif", "vroom", "readxl",
+          "terrainr", "ENMTools","gstat","automap","intamap","RColorBrewer",
+          "janitor")
+lapply(pkgs, require, character.only = T)
+
+shared_data <- "C:/Users/dcla0021/Documents/postdoc/projects/shared_data/"
+
+
+veg <- c("Tracheophyta", "Ascomycota", "Bryophyta", "Chlorophyta",
+         "Marchantiophyta", "Basidiomycota", "Glomeromycota")
+
+hh <- "C:/Users/dcla0021/Documents/postdoc/projects/sampling_plan"
+
+gbif_sf <- st_read(here(hh, "data", "biodiversity", "gbif", "gbif_ant_sf_min.shp")) %>%
+
+  dplyr::filter(phylum %in% veg) %>%
+
+  st_transform(3031)
+
+antveg <- st_read(here(shared_data, "biodiversity", "PlantarcticaVegetationMap.shp")) %>%
+
+  filter(Vegetation != "Snow Algae")
+
+## Different coordinate uncertainty
+gbif_veg <- st_join(gbif_sf, antveg, join = st_intersects)
+gbif_veg_100 <- st_join(st_buffer(gbif_sf, 100), antveg, join = st_intersects)
+gbif_veg_1000 <- st_join(st_buffer(gbif_sf, 1000), antveg, join = st_intersects)
+
+mapview(antveg, native.crs = T, col.regions = "green") +
+  mapview(gbif_veg, native.crs = T, col.regions = "black")
+
